@@ -516,3 +516,205 @@ POST /api/v1/fx/exchange
 ```
 
 ---
+
+## 10. Logging & Monitoring Setup
+
+### 10.1 Overview
+
+The system uses **ELK Stack** (Elasticsearch, Logstash, Kibana) for centralized logging with **Logback** for application-level logging.
+
+**Logging Pipeline:**
+```
+Application (Logback) → Logstash (TCP:5000) → Elasticsearch → Kibana (UI)
+```
+
+### 10.2 Starting ELK Stack
+
+Start Elasticsearch, Logstash, and Kibana using Docker Compose:
+
+```bash
+cd /home/ubuntu/IdeaProjects/Omni-Bank-Messaging-Hub
+docker-compose -f docker-compose-elk-stack.yml up -d
+```
+
+Verify services are running:
+
+```bash
+# Check Elasticsearch
+curl http://localhost:9200
+
+# Check Kibana
+curl http://localhost:5601
+
+# Check Logstash logs
+docker logs logstash
+```
+
+### 10.3 Services with Logging Enabled
+
+All 4 microservices are configured to log via Logback:
+
+| Service | Logback Config | App Name | Port |
+|---------|---|---|---|
+| **core-banking** | `core-banking/src/main/resources/logback-spring.xml` | `core-banking` | 8080 |
+| **sell-foreign-service** | `sell-foreign-service/src/main/resources/logback-spring.xml` | `sell-foreign-service` | 8081 |
+| **sell-foreign-processor-service** | `sell-foreign-processor-service/src/main/resources/logback-spring.xml` | `sell-foreign-processor-service` | 8082 |
+| **treasury-service** | `treasury-service/src/main/resources/logback-spring.xml` | `treasury-service` | 8083 |
+
+### 10.4 Logback Configuration Features
+
+- ✅ **Async Logging** - Non-blocking log processing (1024 event queue)
+- ✅ **JSON Format** - Structured logs sent to Logstash
+- ✅ **Console Output** - Real-time logs in terminal for development
+- ✅ **Error Logs** - Separate local backup with rotation (10MB/30 days)
+- ✅ **Environment Profiles** - `dev` (DEBUG) and `prod` (INFO) log levels
+- ✅ **MDC Support** - For correlation IDs and distributed tracing
+- ✅ **Noise Suppression** - Reduced verbosity from Spring, Hibernate, Catalina
+
+**Daily Index Pattern:**
+
+```
+spring-logs-YYYY.MM.dd
+```
+
+Examples: `spring-logs-2026-05-19`, `spring-logs-2026-05-20`
+
+### 10.5 Logstash Pipeline
+
+**Config File:** `logstash/pipeline/logstash.conf`
+
+**Flow:**
+```
+Input:  TCP Port 5000 (JSON Lines codec)
+   ↓
+Filter: Parse timestamp, extract fields
+   ↓
+Output: Elasticsearch (spring-logs-YYYY.MM.dd indices)
+```
+
+### 10.6 Accessing Logs in Kibana
+
+1. Open **Kibana:** http://localhost:5601
+2. Go to **Management** → **Index Patterns**
+3. Create new index pattern: `spring-logs-*`
+4. Go to **Discover** tab to view real-time logs
+
+**Filter Examples:**
+
+```
+# By Service
+app_name: "core-banking"
+
+# By Log Level
+level: "ERROR"
+level: "WARN"
+
+# By Time Range
+@timestamp: [now-1h TO now]
+```
+
+### 10.7 Log Levels by Environment
+
+**Development (DEBUG):**
+```bash
+cd core-banking && ./mvnw spring-boot:run --spring.profiles.active=dev
+```
+- All DEBUG, INFO, WARN, ERROR logs visible
+- Detailed method entry/exit
+- Variable values and states
+
+**Production (INFO):**
+```bash
+cd core-banking && ./mvnw spring-boot:run --spring.profiles.active=prod
+```
+- Only INFO, WARN, ERROR logs
+- Better performance
+- No sensitive debug information
+
+### 10.8 Logging Throughout the System
+
+#### Controllers - API Request/Response
+
+```java
+log.info("[ENDPOINT] Received POST /exchange - idempotencyKey: {}, from: {} to: {}, amount: {}",
+    request.getIdempotencyKey(), request.getBaseCurrency(),
+    request.getTargetCurrency(), request.getAmount());
+```
+
+#### Services - Business Logic
+
+```java
+log.info("Processing Hold for txId: {}, amount: {}", txId, amount);
+log.debug("Validating account - accountId: {}", accountId);
+log.warn("Insufficient funds - available: {}, requested: {}", available, requested);
+log.error("Hold operation failed", exception);
+```
+
+#### Message Listeners - Queue Processing
+
+```java
+log.info("[MESSAGE_LISTENER] Received message - idempotencyKey: {}",
+    message.getIdempotencyKey());
+```
+
+### 10.9 Example Log Flow
+
+When a user initiates an FX transaction:
+
+```
+[ENDPOINT] POST /exchange - idempotencyKey: abc-123, USD → VND, 500
+  ↓
+[INFO] Publishing message to RabbitMQ
+  ↓
+[MESSAGE_LISTENER] Received message - idempotencyKey: abc-123
+  ↓
+[INFO] Step 1: Holding balance - holdId: ENTRY-HOLD-xyz789
+  ↓
+[INFO] Step 2: Getting exchange rate - rate: 25,450
+  ↓
+[INFO] Step 3: Calculating converted amount - 500 USD → 12,725,000 VND
+  ↓
+[INFO] Transaction completed successfully
+  ↓
+[MESSAGE_LISTENER] Message acknowledged
+  ↓
+All logs visible in Kibana
+```
+
+### 10.10 Troubleshooting Logging
+
+**Problem:** No logs appearing in Elasticsearch?
+
+1. Check Logstash is running:
+   ```bash
+   docker ps | grep logstash
+   ```
+
+2. Check Logstash logs for errors:
+   ```bash
+   docker logs <logstash-container-id>
+   ```
+
+3. Verify Elasticsearch is running:
+   ```bash
+   curl http://localhost:9200
+   ```
+
+4. Check TCP connection to Logstash:
+   ```bash
+   telnet localhost 5000
+   ```
+
+5. Verify index pattern is created in Kibana:
+   - Management → Index Patterns → Check `spring-logs-*` exists
+
+**Problem:** High log volume?
+
+Update log level in `logback-spring.xml`:
+
+```xml
+<logger name="org.springframework.web" level="WARN"/>
+<logger name="org.hibernate" level="WARN"/>
+```
+
+---
