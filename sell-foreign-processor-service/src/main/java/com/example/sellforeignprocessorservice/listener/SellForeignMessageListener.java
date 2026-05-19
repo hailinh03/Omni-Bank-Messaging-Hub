@@ -22,20 +22,23 @@ public class SellForeignMessageListener {
     public void onMessage(SellForeignMessage message,
                           Channel channel,
                           @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
-      //  log.info("Received message for tx [{}]", message.getTxId());
+        log.info("[MESSAGE_LISTENER] Received message from queue - idempotencyKey: {}, customerId: {}, amount: {}",
+            message.getIdempotencyKey(), message.getOwnerId(), message.getAmount());
 
         try {
             processorService.processTransaction(message);
             channel.basicAck(deliveryTag, false);
-        //    log.info("Acknowledged message for tx [{}]", message.getTxId());
+            log.info("[MESSAGE_LISTENER] Message processed and acknowledged - idempotencyKey: {}", message.getIdempotencyKey());
 
         } catch (Exception e) {
-    //        log.error("Failed to process tx [{}]: {}", message.getTxId(), e.getMessage(), e);
+            log.error("[MESSAGE_LISTENER] Failed to process message - idempotencyKey: {}, error: {}",
+                message.getIdempotencyKey(), e.getMessage(), e);
             try {
                 // requeue = false → send to DLQ if configured, otherwise discard
                 channel.basicNack(deliveryTag, false, false);
+                log.warn("[MESSAGE_LISTENER] Message sent to DLQ - idempotencyKey: {}", message.getIdempotencyKey());
             } catch (Exception nackEx) {
-                log.error("Failed to nack message: {}", nackEx.getMessage());
+                log.error("[MESSAGE_LISTENER] Failed to nack message", nackEx);
             }
         }
     }

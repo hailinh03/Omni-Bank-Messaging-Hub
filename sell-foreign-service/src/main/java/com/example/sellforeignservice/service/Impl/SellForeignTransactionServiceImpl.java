@@ -35,8 +35,12 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
     @Override
     @Transactional
     public ApiResponse<SellForeignTransactionResponse> exchange(SellForeignTransactionRequest request) {
-
+        log.info("Initiating exchange transaction - idempotencyKey: {}, customerId: {}, from: {} to: {}, amount: {}",
+            request.getIdempotencyKey(), request.getCustomerId(), 
+            request.getBaseCurrency(), request.getTargetCurrency(), request.getAmount());
+        
         validateRequest(request);
+        log.debug("Exchange request validation passed for idempotencyKey: {}", request.getIdempotencyKey());
 
 
         // validate -> generate txId -> save transaction PROCESSING -> publish MQ
@@ -60,20 +64,23 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
                 .timestamp(Instant.now())
                 .build();
 
-        try { // bat lỗi nếu ko gửi dc
+        try {
+            log.debug("Publishing exchange message to RabbitMQ - exchange: {}, routingKey: {}, idempotencyKey: {}",
+                RabbitMQConstants.TOPIC_EXCHANGE, RabbitMQConstants.ROUTING_PROCESSOR, request.getIdempotencyKey());
             rabbitTemplate.convertAndSend(
                     RabbitMQConstants.TOPIC_EXCHANGE,
                     RabbitMQConstants.ROUTING_PROCESSOR,
                     message
             );
+            log.info("Successfully published exchange message to queue for idempotencyKey: {}", request.getIdempotencyKey());
         } catch (AmqpException ex) {
+            log.error("Failed to publish exchange message to RabbitMQ for idempotencyKey: {}", request.getIdempotencyKey(), ex);
             throw new BusinessException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     ApiCode.MQ_ERR_001,
                     "Message queue failed"
             );
         }
-      //  log.info("Published message [{}] to queue with routing key [{}]", txId, RabbitMQConstants.ROUTING_PROCESSOR);
 
         SellForeignTransactionResponse responseData = SellForeignTransactionResponse.builder()
             //    .txId(txId.toString())
@@ -84,9 +91,12 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
     }
 
     private void validateRequest(SellForeignTransactionRequest request) {
+        log.debug("Validating exchange request - idempotencyKey: {}", request.getIdempotencyKey());
+        
         try {
             UUID.fromString(request.getIdempotencyKey());
         } catch (IllegalArgumentException e) {
+            log.warn("Invalid idempotency key format: {}", request.getIdempotencyKey());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.INVALID_REQUEST,
@@ -95,6 +105,7 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
         }
 
         if (transactionRepository.existsByIdempotencyKey(request.getIdempotencyKey())) {
+            log.warn("Duplicate transaction request - idempotencyKey: {}", request.getIdempotencyKey());
             throw new BusinessException(
                     HttpStatus.CONFLICT,
                     ApiCode.FX_ERR_003,
@@ -103,6 +114,7 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
         }
 
         if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Invalid amount: {}", request.getAmount());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.AMOUNT_NOT_POSITIVE,
@@ -110,6 +122,7 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
             );
         }
         if (request.getAmount().compareTo(new BigDecimal("1.00")) < 0) {
+            log.warn("Amount too small: {}", request.getAmount());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.AMOUNT_TOO_SMALL,
@@ -118,6 +131,7 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
         }
 
         if (!Currency.isSupported(request.getBaseCurrency())) {
+            log.warn("Unsupported base currency: {}", request.getBaseCurrency());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.FX_ERR_001,
@@ -125,6 +139,7 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
             );
         }
         if (!Currency.isSupported(request.getTargetCurrency())) {
+            log.warn("Unsupported target currency: {}", request.getTargetCurrency());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.FX_ERR_001,
@@ -132,11 +147,13 @@ public class SellForeignTransactionServiceImpl implements SellForeignTransaction
             );
         }
         if (request.getBaseCurrency().equalsIgnoreCase(request.getTargetCurrency())) {
+            log.warn("Base and target currency are the same: {}", request.getBaseCurrency());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.SAME_CURRENCY,
                     "Base currency and target currency must be different"
             );
         }
+        log.debug("All validations passed for exchange request");
     }
 }

@@ -21,6 +21,18 @@ public class ExchangeController {
     @PostMapping("/exchange")
     public ResponseEntity<ApiResponse<SellForeignTransactionResponse>> exchangeSellForeignTransaction(
             @RequestBody @Valid SellForeignTransactionRequest request) {
-        return new ResponseEntity<>(sellForeignTransactionService.exchange(request), HttpStatus.ACCEPTED);
+        log.info("[ENDPOINT] Received POST /exchange request - idempotencyKey: {}, customerId: {}, {} to {}, amount: {}",
+            request.getIdempotencyKey(), request.getCustomerId(),
+            request.getBaseCurrency(), request.getTargetCurrency(), request.getAmount());
+        try {
+            ApiResponse<SellForeignTransactionResponse> response = sellForeignTransactionService.exchange(request);
+            log.info("[ENDPOINT] Exchange request accepted for processing - idempotencyKey: {}", 
+                request.getIdempotencyKey());
+            return new ResponseEntity<>(response, HttpStatus.ACCEPTED);
+        } catch (Exception e) {
+            log.error("[ENDPOINT] Exchange request processing failed - idempotencyKey: {}", 
+                request.getIdempotencyKey(), e);
+            throw e;
+        }
     }
 }

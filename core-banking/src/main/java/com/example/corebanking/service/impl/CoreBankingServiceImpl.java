@@ -39,16 +39,22 @@ public class CoreBankingServiceImpl implements CoreBankingService {
         log.info("Processing Hold for txId: {}", request.getTxId());
 
         if (request.getTxId() == null || request.getTxId().isBlank()) {
+            log.warn("Hold request validation failed: Missing txId");
             throw new BusinessException(HttpStatus.BAD_REQUEST, ApiCode.MISSING_FIELD, "Missing required field");
         }
         if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Hold request validation failed: Invalid amount [{}]", request.getAmount());
             throw new BusinessException(HttpStatus.BAD_REQUEST, ApiCode.AMOUNT_NOT_POSITIVE, "Amount must be greater than 0");
         }
+        log.debug("Validating hold request - accountId: {}, amount: {}, currency: {}, ownerId: {}", 
+            request.getAccountNumberId(), request.getAmount(), request.getCurrency(), request.getOwnerId());
 
         // Idempotency guard: do not hold twice for the same transaction.
+        log.debug("Checking for existing hold entry for txId: {}", request.getTxId());
         Entry existingHold = entryRepository.findByTxIdAndType(request.getTxId(), EntryType.HOLD)
                 .orElse(null);
         if (existingHold != null) {
+            log.info("Hold already exists for txId: {}, holdId: {}", request.getTxId(), existingHold.getEntryId());
             return HoldResponse.builder()
                     .holdId(existingHold.getEntryId())
                     .txId(existingHold.getTxId())
@@ -59,41 +65,54 @@ public class CoreBankingServiceImpl implements CoreBankingService {
                     .build();
         }
 
+        log.debug("Fetching account for accountId: {}", request.getAccountNumberId());
         Account account = accountRepository.findByAccountNumberId(request.getAccountNumberId())
-                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, ApiCode.FX_ERR_009, "Account not found"));
+                .orElseThrow(() -> {
+                    log.warn("Account not found for accountId: {}", request.getAccountNumberId());
+                    return new BusinessException(HttpStatus.NOT_FOUND, ApiCode.FX_ERR_009, "Account not found");
+                });
 
         if (!account.getCustomerId().equals(request.getOwnerId())) {
+            log.warn("Account owner mismatch: expected customerId: {}, account customerId: {}", request.getOwnerId(), account.getCustomerId());
             throw new BusinessException(HttpStatus.NOT_FOUND, ApiCode.FX_ERR_009, "Account not found");
         }
         if (!"ACTIVE".equalsIgnoreCase(account.getStatus())) {
+            log.warn("Account is not active for accountId: {}, status: {}", request.getAccountNumberId(), account.getStatus());
             throw new BusinessException(HttpStatus.LOCKED, ApiCode.FX_ERR_010, "Account locked");
         }
         if (!account.getCurrency().name().equalsIgnoreCase(request.getCurrency())) {
+            log.warn("Currency mismatch: expected: {}, account currency: {}", request.getCurrency(), account.getCurrency().name());
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, ApiCode.FX_ERR_007, "Source account currency mismatch");
         }
 
         if (account.getAvailableBalance().compareTo(request.getAmount()) < 0) {
+            log.warn("Insufficient funds: accountId: {}, available: {}, requested: {}", 
+                request.getAccountNumberId(), account.getAvailableBalance(), request.getAmount());
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, ApiCode.FX_ERR_002, "Insufficient funds");
         }
-        // ok đã validate và check xong balance rồi h bắt đầu hold
-
-        int updatedRows = accountRepository.holdFundsAtomically( // này là hold
+        // Validation passed, now hold the funds
+        log.debug("Holding funds atomically for txId: {}, amount: {}", request.getTxId(), request.getAmount());
+        int updatedRows = accountRepository.holdFundsAtomically(
                 request.getAccountNumberId(),
                 request.getAmount(),
                 Currency.valueOf(request.getCurrency())
         );
         if (updatedRows == 0) {
-            //check lại cái nữa
+            log.warn("Hold operation failed for txId: {}, performing verification", request.getTxId());
             boolean accountExists = accountRepository.existsByAccountNumberId(request.getAccountNumberId());
             if (!accountExists) {
+                log.error("Account not found during hold verification for accountId: {}", request.getAccountNumberId());
                 throw new BusinessException(HttpStatus.NOT_FOUND, ApiCode.FX_ERR_009, "Account not found");
             } else {
+                log.error("Hold operation failed due to insufficient funds for txId: {}", request.getTxId());
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, ApiCode.FX_ERR_002, "Insufficient funds");
             }
         }
+        log.debug("Funds held successfully for txId: {}", request.getTxId());
 
-        // sau khi hold, lưu vào entry/ ở đây để HOLD trước + UUID để dễ nhìn ấy mà
-         String holdId = "ENTRY-HOLD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        // Save hold entry after successful fund hold
+        log.debug("Creating hold entry for txId: {}", request.getTxId());
+        String holdId = "ENTRY-HOLD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         Entry holdEntry = Entry.builder()
                 .entryId(holdId)
                 .txId(request.getTxId())
@@ -103,8 +122,8 @@ public class CoreBankingServiceImpl implements CoreBankingService {
                 .currency(request.getCurrency())
                 .build();
         entryRepository.save(holdEntry);
-
-        log.info("Successfully processed Hold [{}] for txId: {}", holdId, request.getTxId());
+        log.info("Successfully processed Hold [{}] for txId: {}, amount: {}, currency: {}", 
+            holdId, request.getTxId(), request.getAmount(), request.getCurrency());
 
         return HoldResponse.builder()
                 .holdId(holdEntry.getEntryId())

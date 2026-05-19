@@ -23,29 +23,39 @@ public class CurrencyExchangeServiceImpl implements ICurrencyExchangeService {
 
     @Override
     public TreasuryRateResponse processExchange(TreasuryRateRequest request) {
+        log.info("Processing currency exchange request - txId: {}, {} to {}", 
+            request.getTxId(), request.getBase(), request.getCurrencies());
+        
         validateMessage(request);
+        log.debug("Treasury rate request validation passed");
 
         BigDecimal rate;
         try {
+            log.debug("Fetching exchange rate from FX Rates API - base: {}, target: {}",
+                request.getBase(), request.getCurrencies());
             rate = fxRatesClient.getRate(
                     request.getBase(),
                     request.getCurrencies(),
                     1
             );
+            log.debug("Exchange rate retrieved - rate: {} for {}/{}", rate, request.getBase(), request.getCurrencies());
         } catch (IllegalStateException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("Rate not found")) {
+                log.warn("Invalid currency pair requested - base: {}, target: {}", request.getBase(), request.getCurrencies());
                 throw new BusinessException(
                         HttpStatus.BAD_REQUEST,
                         ApiCode.FX_ERR_001,
                         "Invalid currency pair"
                 );
             }
+            log.error("Treasury service unavailable for txId: {}", request.getTxId(), ex);
             throw new BusinessException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     ApiCode.TREASURY_ERR_001,
                     "Treasury unavailable"
             );
         } catch (RuntimeException ex) {
+            log.error("Unexpected error while fetching exchange rate for txId: {}", request.getTxId(), ex);
             throw new BusinessException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     ApiCode.TREASURY_ERR_001,
@@ -62,8 +72,8 @@ public class CurrencyExchangeServiceImpl implements ICurrencyExchangeService {
                 .timestamp(LocalDateTime.now())
                 .build();
 
-        log.info("TX {} | {} -> {} | rate={} | timestamp={}",
-                treasuryRateResponse.getTxId(),
+        log.info(" {} -> {} | rate={} | timestamp={}",
+             //   treasuryRateResponse.getTxId(),
                 treasuryRateResponse.getBase(),
                 treasuryRateResponse.getTarget(),
                 rate,
@@ -73,7 +83,10 @@ public class CurrencyExchangeServiceImpl implements ICurrencyExchangeService {
     }
 
     private void validateMessage(TreasuryRateRequest request) {
+        log.debug("Validating treasury rate request");
+        
         if (request == null || request.getTxId() == null) {
+            log.warn("Treasury rate request validation failed: missing txId");
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.MISSING_FIELD,
@@ -81,6 +94,7 @@ public class CurrencyExchangeServiceImpl implements ICurrencyExchangeService {
             );
         }
         if (request.getCurrencies() == null || request.getBase() == null) {
+            log.warn("Treasury rate request validation failed: missing currencies or base");
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.MISSING_FIELD,
@@ -90,11 +104,14 @@ public class CurrencyExchangeServiceImpl implements ICurrencyExchangeService {
         if (!Currency.isSupported(request.getBase())
                 || !Currency.isSupported(request.getCurrencies())
                 || request.getCurrencies().equalsIgnoreCase(request.getBase())) {
+            log.warn("Invalid currency pair for txId: {} - base: {}, target: {}", 
+                request.getTxId(), request.getBase(), request.getCurrencies());
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST,
                     ApiCode.FX_ERR_001,
                     "Invalid currency pair"
             );
         }
+        log.debug("Treasury rate request validation passed");
     }
 }
