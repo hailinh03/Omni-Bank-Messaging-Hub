@@ -26,22 +26,45 @@ public class CoreBankingController {
 
     @PostMapping("/check-and-hold")
     public ResponseEntity<ApiResponse<HoldResponse>> CheckAndHold(@RequestBody HoldRequest request) {
-        log.info("Received request for hold for txId: {}", request.getTxId());
-        HoldResponse responseData = coreBankingService.processCheckAndHold(request);
-        return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        log.info("[ENDPOINT] Received POST /check-and-hold request - txId: {}, amount: {}", 
+            request.getTxId(), request.getAmount());
+        try {
+            HoldResponse responseData = coreBankingService.processCheckAndHold(request);
+            log.info("[ENDPOINT] Hold operation successful - holdId: {}, txId: {}", 
+                responseData.getHoldId(), request.getTxId());
+            return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        } catch (Exception e) {
+            log.error("[ENDPOINT] Hold operation failed - txId: {}", request.getTxId(), e);
+            throw e;
+        }
     }
 
     @PostMapping("/release-and-entry")
     public ResponseEntity<ApiResponse<ReleaseAndEntryResponse>> releaseAndEntry(@RequestBody ReleaseAndEntryRequest request) {
-        log.info("Received request for release-and-entry for holdId: {}", request.getHoldId());
-        ReleaseAndEntryResponse responseData = coreBankingService.processReleaseAndEntry(request);
-        return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        log.info("[ENDPOINT] Received POST /release-and-entry request - txId: {}, holdId: {}", 
+            request.getTxId(), request.getHoldId());
+        try {
+            ReleaseAndEntryResponse responseData = coreBankingService.processReleaseAndEntry(request);
+            log.info("[ENDPOINT] Release and entry successful - entryId: {}, holdId: {}", 
+                responseData.getEntryId(), request.getHoldId());
+            return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        } catch (Exception e) {
+            log.error("[ENDPOINT] Release and entry failed - txId: {}", request.getTxId(), e);
+            throw e;
+        }
     }
-    // trả lại tiền đã hold nếu error
+
     @PostMapping("/release-hold")
     public ResponseEntity<ApiResponse<ReleaseHoldResponse>> releaseHold(@RequestBody ReleaseHoldRequest request) {
-        log.info("Received request for release-hold for holdId: {}", request.getHoldId());
-        ReleaseHoldResponse responseData = coreBankingService.processReleaseHold(request);
-        return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        log.info("[ENDPOINT] Received POST /release-hold request - txId: {}, holdId: {}", 
+            request.getTxId(), request.getHoldId());
+        try {
+            ReleaseHoldResponse responseData = coreBankingService.processReleaseHold(request);
+            log.info("[ENDPOINT] Release hold successful - holdId: {}", request.getHoldId());
+            return ResponseEntity.ok(ApiResponse.success("SUCCESS", responseData));
+        } catch (Exception e) {
+            log.error("[ENDPOINT] Release hold failed - txId: {}", request.getTxId(), e);
+            throw e;
+        }
     }
 }

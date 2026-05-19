@@ -25,20 +25,25 @@ public class TransactionQueryController {
 
     @GetMapping("/transactions/{txId}")
     public ResponseEntity<ApiResponse<TransactionQueryResponse>> getTransactionResult(@PathVariable("txId") String txId) {
-
-        log.info("Query transaction result");
-
+        log.info("[ENDPOINT] Received GET /transactions/{} query request", txId);
+        
         UUID parsedTxId;
-
         try {
             parsedTxId = UUID.fromString(txId);
+            log.debug("Transaction ID parsed successfully - txId: {}", parsedTxId);
         } catch (IllegalArgumentException e) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid transaction ID format: " + txId
-            );
+            log.warn("Invalid transaction ID format - txId: {}", txId);
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid transaction ID format: " + txId);
         }
 
-        TransactionQueryResponse result = transactionQueryService.getTransactionResult(parsedTxId);
-
-        return ResponseEntity.ok(ApiResponse.success("SUCCESS", result));
+        try {
+            TransactionQueryResponse result = transactionQueryService.getTransactionResult(parsedTxId);
+            log.info("[ENDPOINT] Transaction query successful - txId: {}, status: {}", 
+                parsedTxId, result.getTransactionStatus());
+            return ResponseEntity.ok(ApiResponse.success("SUCCESS", result));
+        } catch (Exception e) {
+            log.error("[ENDPOINT] Transaction query failed - txId: {}", parsedTxId, e);
+            throw e;
+        }
     }
 }
