@@ -1,0 +1,11 @@
+POST http://localhost:8088/api/v1/fx/exchange
+Content-Type: application/json
+
+{
+  "idempotency_key": "8b5f3964-6725-4b07-bf40-42cf6b5b5e13",
+  "customer_id": "CUSTOMER-001",
+  "account_number_id": "ACC-001",
+  "base_currency": "USD",
+  "target_currency": "VND",
+  "amount": 2
+}
