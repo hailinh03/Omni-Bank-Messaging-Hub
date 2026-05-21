@@ -1,7 +1,10 @@
 package com.example.sellforeignservice.config;
 
+import brave.Tracing;
+import brave.spring.rabbit.SpringRabbitTracing;
 import com.example.common.constant.RabbitMQConstants;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
@@ -44,10 +47,33 @@ public class RabbitMQConfig {
         return new JacksonJsonMessageConverter();
     }
 
+//    @Bean
+//    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+//        RabbitTemplate template = new RabbitTemplate(connectionFactory);
+//        template.setMessageConverter(messageConverter());
+//        return template;
+//    }
     @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+    public SpringRabbitTracing springRabbitTracing(Tracing tracing) {
+        return SpringRabbitTracing.newBuilder(tracing)
+                .remoteServiceName("rabbitmq")
+                .build();
+    }
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         SpringRabbitTracing springRabbitTracing) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(messageConverter());
-        return template;
+        return springRabbitTracing.decorateRabbitTemplate(template);
+    }
+
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            SpringRabbitTracing springRabbitTracing) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(messageConverter());
+        return springRabbitTracing.decorateSimpleRabbitListenerContainerFactory(factory);
     }
 }

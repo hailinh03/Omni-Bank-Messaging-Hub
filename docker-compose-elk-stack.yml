@@ -6,7 +6,9 @@ services:
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true # 1. BẬT BẢO MẬT
+      - xpack.security.http.ssl.enabled=false # 2. Tắt SSL để dùng HTTP thay vì https
+      - "ELASTIC_PASSWORD=Admin@123456"
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
       - "9200:9200"
@@ -35,6 +37,8 @@ services:
       - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system # tài khoản để kết nối ngầm với elastic search
+      - ELASTICSEARCH_PASSWORD=Kibana@123456
     depends_on:
       - elasticsearch
     networks:

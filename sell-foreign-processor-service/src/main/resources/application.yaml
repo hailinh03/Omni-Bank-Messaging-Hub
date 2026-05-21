@@ -33,10 +33,6 @@ spring:
         acknowledge-mode: manual
         prefetch: 1
 
-logging:
-  level:
-    org.hibernate.SQL: DEBUG
-
 feign:
   client:
     treasury:
@@ -45,3 +41,14 @@ feign:
       url: http://localhost:8084
 key:
   throw-exception: b2b1e6a9-5f8c-9f8b-9c4a-2a6f9d3c7d99
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0  # 1.0 = trace 100% request (dev), production nên để 0.1 = 10%
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+  level:
+    org.hibernate.SQL: DEBUG

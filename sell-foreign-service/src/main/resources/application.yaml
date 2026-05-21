@@ -32,7 +32,13 @@ spring:
       simple:
         acknowledge-mode: manual
         prefetch: 1
+management:
+  tracing:
+    sampling:
+      probability: 1.0  # 1.0 = trace 100% request (dev), production nên để 0.1 = 10%
 
 logging:
   level:
     org.hibernate.SQL: DEBUG
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
